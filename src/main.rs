@@ -2,12 +2,12 @@
 #![feature(advanced_slice_patterns)]
 #![feature(convert)]
 extern crate rand;
+extern crate time;
 extern crate ml_math;
 
 use ml_math::VarianceIncrementor;
 
 use std::fs::File;
-use std::io::BufReader;
 use std::io::prelude::*;
 use std::str::FromStr;
 use std::num::ParseFloatError;
@@ -26,34 +26,44 @@ const PERCENT_TEST_ROWS : f64 = 0.30;
 /// See the calculateProbability function in [this blog post] for 
 ///
 fn gaussian_probability_density(value: f64, mean: f64, variance: f64) -> f64 {
-	let exponent = (-(value - mean).powi(2) / (2f64 * variance.powi(4))).exp();
-	1f64 / ((2f64 * PI).sqrt() * variance.powi(2)) * exponent
+	let exponent = (-(value - mean).powi(2) / (2f64 * variance)).exp();
+	1f64 / ((2f64 * PI).sqrt() * variance.sqrt()) * exponent
 }
 
 fn main() {
+	
+	let start = time::now();
+	
 	let mut variance_incr = VarianceIncrementor::new();
+	
+	let mut file = File::open(DATA_FILE).unwrap();
+	let mut file_text : String = String::new();
+	
+	file.read_to_string(&mut file_text).unwrap();
+
 	for i in 0..20 {
-		let random_seed = &[i];
-		let accuracy = predict(random_seed);
+		let random_seed = &[i,1];
+		let accuracy = predict(random_seed, &file_text);
 		variance_incr.add(accuracy);
-        println!("test #{} accuracy: {}%", i + 1, (accuracy * 100.0) as u64);
 	}
-	println!("Test accurracy summary - mean: {}%, variance: {}", (variance_incr.mean() * 100.0) as u64, variance_incr.variance());
+	
+	let duration = time::now() - start;
+
+	println!("Time taken: {}", (duration.num_milliseconds() as f64) / 1000f64);
+	println!("Test accurracy summary - mean: {}%, standard_dev: {}", (variance_incr.mean() * 100.0) as u64, variance_incr.variance().sqrt());
 }
 
-fn predict(random_seed: &[usize]) -> f64 {
-
-	if let Ok(file) = File::open(DATA_FILE) {
+fn predict(random_seed: &[usize], file_text: &String) -> f64 {
         let mut patients_diseased = [VarianceIncrementor::new(); 8];
         let mut patients_healthy = [VarianceIncrementor::new(); 8];
     
         let mut rng : StdRng = SeedableRng::from_seed(random_seed);
 
-        for line in BufReader::new(file).lines() {
+        for line in file_text.lines() {
             let is_test_row = rng.gen_range(0.0, 1.0) <= PERCENT_TEST_ROWS;
             
             if !is_test_row {
-                if let Ok(patient_data) = parse_patient_data(&line.unwrap()) {
+                if let Ok(patient_data) = parse_patient_data(&line) {
                     if patient_data.len() != TOTAL_FIELD_COUNT {
 //                        println!("Line {} does not have {} columns; skipping", index, TOTAL_FIELD_COUNT);
                     } else {
@@ -82,11 +92,11 @@ fn predict(random_seed: &[usize]) -> f64 {
         let mut rows_tested = 0;
 
         // TODO remove additional File::open
-        for line in BufReader::new(File::open(DATA_FILE).unwrap()).lines() {
+        for line in file_text.lines() {
             let is_test_row = rng.gen_range(0.0, 1.0) <= PERCENT_TEST_ROWS;
             
             if is_test_row {
-                let patient_data = parse_patient_data(&line.unwrap()).unwrap();
+                let patient_data = parse_patient_data(&line).unwrap();
 
                 if patient_data.len() != TOTAL_FIELD_COUNT {
 //                    println!("Line {} does not have {} columns; skipping", index, TOTAL_FIELD_COUNT);
@@ -96,8 +106,8 @@ fn predict(random_seed: &[usize]) -> f64 {
                             let mut probability_healthy = 1.0;
                             let mut probability_diseased = 1.0;
                             for (i, property) in properties.iter().enumerate() {
-                            	probability_healthy *= gaussian_probability_density(*property, patients_healthy[i].mean(), patients_healthy[i].variance()).log2();
-                            	probability_diseased *= gaussian_probability_density(*property, patients_diseased[i].mean(), patients_diseased[i].variance()).log2();
+                            	probability_healthy *= gaussian_probability_density(*property, patients_healthy[i].mean(), patients_healthy[i].variance());
+                            	probability_diseased *= gaussian_probability_density(*property, patients_diseased[i].mean(), patients_diseased[i].variance());
                             }
                             
                             let healthy_prediction = probability_healthy > probability_diseased;
@@ -121,10 +131,6 @@ fn predict(random_seed: &[usize]) -> f64 {
 //		println!("Rows correctly predicted: {} of {} ({} %)", correct_guesses, rows_tested, percent_correct_guesses);
 		
 		percent_correct_guesses
-	} else {
-		println!("Unable to load file \"{}\"", DATA_FILE.to_string());
-		0.0
-	}
 }
 
 fn parse_patient_data(patient_data: &str) -> Result<Vec<f64>, ParseFloatError>  {
@@ -141,5 +147,5 @@ fn test_parse_patient_data() {
 // Test function using values taken from this [blog post](http://machinelearningmastery.com/naive-bayes-classifier-scratch-python)
 fn test_gaussian_probability_density() {
 	let sd : f64 = 6.2;
-	assert_eq!(0.06248965759370005, gaussian_probability_density(71.5, 73.0, sd.sqrt()));
+	assert_eq!(0.06248965759370005, gaussian_probability_density(71.5, 73.0, sd.powi(2)));
 }
