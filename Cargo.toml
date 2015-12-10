@@ -10,6 +10,7 @@ name = "hello_world"
 
 [dependencies]
 rand = "*"
+time = "*"
 
 [dependencies.ml_math]
 git = "https://github.com/Arubaruba/rust-ml_math" 
